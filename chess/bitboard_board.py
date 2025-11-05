@@ -49,6 +49,12 @@ class BitBoard:
             Color.BLACK: {pt: 0 for pt in PieceType},
         }
         
+        # Fast array access for pieces (avoid dict lookup overhead)
+        # Index: [0=WHITE, 1=BLACK][piece_type_index]
+        self._piece_bbs: list[list[int]] = [[0] * 6, [0] * 6]
+        self._piece_type_list = [PieceType.PAWN, PieceType.KNIGHT, PieceType.BISHOP, 
+                                  PieceType.ROOK, PieceType.QUEEN, PieceType.KING]
+        
         # Occupancy bitboards (all pieces of a color)
         self.color_occupancy: dict[Color, int] = {
             Color.WHITE: 0,
@@ -76,6 +82,16 @@ class BitBoard:
         
         # Wrapper for backward compatibility with squares[][] access
         self._squares_wrapper = SquaresWrapper(self)
+        
+        # Lookup table for piece type to index mapping
+        self._piece_type_to_idx = {
+            PieceType.PAWN: 0,
+            PieceType.KNIGHT: 1,
+            PieceType.BISHOP: 2,
+            PieceType.ROOK: 3,
+            PieceType.QUEEN: 4,
+            PieceType.KING: 5,
+        }
     
     @property
     def squares(self) -> SquaresWrapper:
@@ -104,25 +120,32 @@ class BitBoard:
                         self.pieces[piece.color][piece.piece_type], square
                     )
         
+        self._sync_piece_bbs()
         self._update_occupancy()
         self._recompute_king_positions()
     
     def _update_occupancy(self) -> None:
         """Update occupancy bitboards."""
-        # Manually unroll the loop for better performance
-        white = self.pieces[Color.WHITE]
-        black = self.pieces[Color.BLACK]
+        # Use fast array access for better performance
+        white_bbs = self._piece_bbs[0]
+        black_bbs = self._piece_bbs[1]
         
         self.color_occupancy[Color.WHITE] = (
-            white[PieceType.PAWN] | white[PieceType.KNIGHT] | white[PieceType.BISHOP] |
-            white[PieceType.ROOK] | white[PieceType.QUEEN] | white[PieceType.KING]
+            white_bbs[0] | white_bbs[1] | white_bbs[2] |
+            white_bbs[3] | white_bbs[4] | white_bbs[5]
         )
         self.color_occupancy[Color.BLACK] = (
-            black[PieceType.PAWN] | black[PieceType.KNIGHT] | black[PieceType.BISHOP] |
-            black[PieceType.ROOK] | black[PieceType.QUEEN] | black[PieceType.KING]
+            black_bbs[0] | black_bbs[1] | black_bbs[2] |
+            black_bbs[3] | black_bbs[4] | black_bbs[5]
         )
         
         self.occupancy = self.color_occupancy[Color.WHITE] | self.color_occupancy[Color.BLACK]
+    
+    def _sync_piece_bbs(self) -> None:
+        """Sync fast array with dict representation."""
+        for color_idx, color in enumerate([Color.WHITE, Color.BLACK]):
+            for pt_idx, pt in enumerate(self._piece_type_list):
+                self._piece_bbs[color_idx][pt_idx] = self.pieces[color][pt]
     
     def _recompute_king_positions(self) -> None:
         """Recompute king positions cache."""
@@ -141,16 +164,19 @@ class BitBoard:
         if not (self.occupancy & bit_mask):
             return None
         
-        # Check which color
+        # Check which color (use fast array access)
         if self.color_occupancy[Color.WHITE] & bit_mask:
+            color_idx = 0
             color = Color.WHITE
         else:
+            color_idx = 1
             color = Color.BLACK
         
-        # Check which piece type
-        for piece_type in PieceType:
-            if self.pieces[color][piece_type] & bit_mask:
-                return Piece(color, piece_type)
+        # Check which piece type using fast array
+        piece_bbs = self._piece_bbs[color_idx]
+        for idx in range(6):
+            if piece_bbs[idx] & bit_mask:
+                return Piece(color, self._piece_type_list[idx])
         
         return None
     
@@ -159,21 +185,23 @@ class BitBoard:
         bit_mask = 1 << square_to_bit(square)
         
         # Clear any existing piece at this square from all bitboards
+        for color_idx in range(2):
+            for pt_idx in range(6):
+                self._piece_bbs[color_idx][pt_idx] &= ~bit_mask
+        
         for color in Color:
             for piece_type in PieceType:
                 self.pieces[color][piece_type] &= ~bit_mask
         
         # Set new piece if not None
         if piece is not None:
+            color_idx = 0 if piece.color == Color.WHITE else 1
+            pt_idx = self._piece_type_to_idx[piece.piece_type]
             self.pieces[piece.color][piece.piece_type] |= bit_mask
+            self._piece_bbs[color_idx][pt_idx] |= bit_mask
         
         # Update occupancy efficiently
-        self.color_occupancy[Color.WHITE] = 0
-        self.color_occupancy[Color.BLACK] = 0
-        for piece_type in PieceType:
-            self.color_occupancy[Color.WHITE] |= self.pieces[Color.WHITE][piece_type]
-            self.color_occupancy[Color.BLACK] |= self.pieces[Color.BLACK][piece_type]
-        self.occupancy = self.color_occupancy[Color.WHITE] | self.color_occupancy[Color.BLACK]
+        self._update_occupancy()
     
     def _set_piece_from_squares(self, rank: int, file: int, piece: Piece | None) -> None:
         """Helper method for squares wrapper to set a piece."""
@@ -190,6 +218,10 @@ class BitBoard:
         start_bit = 1 << square_to_bit(start)
         end_bit = 1 << square_to_bit(end)
         
+        # Get fast array indices
+        curr_color_idx = 0 if current_piece.color == Color.WHITE else 1
+        curr_pt_idx = self._piece_type_to_idx[current_piece.piece_type]
+        
         # Handle en passant capture
         if (
             current_piece.piece_type == PieceType.PAWN
@@ -200,15 +232,23 @@ class BitBoard:
             prev_piece = self._get_piece_at(captured_square)
             if prev_piece:
                 cap_bit = 1 << square_to_bit(captured_square)
+                prev_color_idx = 0 if prev_piece.color == Color.WHITE else 1
+                prev_pt_idx = self._piece_type_to_idx[prev_piece.piece_type]
                 self.pieces[prev_piece.color][prev_piece.piece_type] &= ~cap_bit
+                self._piece_bbs[prev_color_idx][prev_pt_idx] &= ~cap_bit
         elif prev_piece is not None:
             captured_square = end
             # Remove captured piece
+            prev_color_idx = 0 if prev_piece.color == Color.WHITE else 1
+            prev_pt_idx = self._piece_type_to_idx[prev_piece.piece_type]
             self.pieces[prev_piece.color][prev_piece.piece_type] &= ~end_bit
+            self._piece_bbs[prev_color_idx][prev_pt_idx] &= ~end_bit
         
-        # Move the piece using bitboard operations
+        # Move the piece using bitboard operations (both dict and fast array)
         self.pieces[current_piece.color][current_piece.piece_type] &= ~start_bit
         self.pieces[current_piece.color][current_piece.piece_type] |= end_bit
+        self._piece_bbs[curr_color_idx][curr_pt_idx] &= ~start_bit
+        self._piece_bbs[curr_color_idx][curr_pt_idx] |= end_bit
         
         # Update occupancy efficiently
         self._update_occupancy()
@@ -228,9 +268,15 @@ class BitBoard:
         start_bit = 1 << square_to_bit(move.start)
         end_bit = 1 << square_to_bit(move.end)
         
-        # Move piece back
+        # Get fast array indices
+        color_idx = 0 if move.piece.color == Color.WHITE else 1
+        pt_idx = self._piece_type_to_idx[move.piece.piece_type]
+        
+        # Move piece back (both dict and fast array)
         self.pieces[move.piece.color][move.piece.piece_type] &= ~end_bit
         self.pieces[move.piece.color][move.piece.piece_type] |= start_bit
+        self._piece_bbs[color_idx][pt_idx] &= ~end_bit
+        self._piece_bbs[color_idx][pt_idx] |= start_bit
         
         # Handle en passant capture restoration
         if (
@@ -242,10 +288,16 @@ class BitBoard:
             # Restore captured pawn at captured_square
             if move.captured_piece:
                 cap_bit = 1 << square_to_bit(move.captured_square)
+                cap_color_idx = 0 if move.captured_piece.color == Color.WHITE else 1
+                cap_pt_idx = self._piece_type_to_idx[move.captured_piece.piece_type]
                 self.pieces[move.captured_piece.color][move.captured_piece.piece_type] |= cap_bit
+                self._piece_bbs[cap_color_idx][cap_pt_idx] |= cap_bit
         elif move.captured_piece is not None:
             # Restore normal capture
+            cap_color_idx = 0 if move.captured_piece.color == Color.WHITE else 1
+            cap_pt_idx = self._piece_type_to_idx[move.captured_piece.piece_type]
             self.pieces[move.captured_piece.color][move.captured_piece.piece_type] |= end_bit
+            self._piece_bbs[cap_color_idx][cap_pt_idx] |= end_bit
         
         # Update occupancy
         self._update_occupancy()

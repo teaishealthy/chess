@@ -44,6 +44,7 @@ class BitBoardFenMixin(BitBoard):
                 )
                 file += 1
 
+        self._sync_piece_bbs()
         self._update_occupancy()
 
         # Parse side to move
