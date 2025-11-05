@@ -67,48 +67,75 @@ class MoveGeneratorMixin(BoardProtocol):
     def is_attacked(
         self, square: Square, by_color: Color
     ) -> tuple[Square, Piece] | None:
-        for direction in QUEEN_DIRECTIONS:
-            for target in self._ray(square, direction):
-                piece = self.squares[target.rank][target.file]
-                if piece is None:
-                    continue
-                if piece.color == by_color:
-                    if piece.piece_type == PieceType.QUEEN:
-                        return (target, piece)
-                    if (
-                        piece.piece_type == PieceType.ROOK
-                        and direction in ROOK_DIRECTIONS
-                    ):
-                        return (target, piece)
-                    if (
-                        piece.piece_type == PieceType.BISHOP
-                        and direction in BISHOP_DIRECTIONS
-                    ):
-                        return (target, piece)
-                    break
-                break
+        rank = square.rank
+        file = square.file
+        squares = self.squares
 
-        for target in self._offset_attacks(square, KNIGHT_OFFSETS):
-            piece = self.squares[target.rank][target.file]
-            if (
-                piece is not None
-                and piece.color == by_color
-                and piece.piece_type == PieceType.KNIGHT
-            ):
-                return (target, piece)
+        for delta_rank, delta_file in ROOK_DIRECTIONS:
+            target_rank = rank + delta_rank
+            target_file = file + delta_file
+            while 0 <= target_rank < 8 and 0 <= target_file < 8:
+                piece = squares[target_rank][target_file]
+                if piece is not None:
+                    if piece.color == by_color and (
+                        piece.piece_type == PieceType.ROOK
+                        or piece.piece_type == PieceType.QUEEN
+                    ):
+                        return (Square(target_rank, target_file), piece)
+                    break
+                target_rank += delta_rank
+                target_file += delta_file
+
+        for delta_rank, delta_file in BISHOP_DIRECTIONS:
+            target_rank = rank + delta_rank
+            target_file = file + delta_file
+            while 0 <= target_rank < 8 and 0 <= target_file < 8:
+                piece = squares[target_rank][target_file]
+                if piece is not None:
+                    if piece.color == by_color and (
+                        piece.piece_type == PieceType.BISHOP
+                        or piece.piece_type == PieceType.QUEEN
+                    ):
+                        return (Square(target_rank, target_file), piece)
+                    break
+                target_rank += delta_rank
+                target_file += delta_file
+
+        for delta_rank, delta_file in KNIGHT_OFFSETS:
+            target_rank = rank + delta_rank
+            target_file = file + delta_file
+            if 0 <= target_rank < 8 and 0 <= target_file < 8:
+                piece = squares[target_rank][target_file]
+                if (
+                    piece is not None
+                    and piece.color == by_color
+                    and piece.piece_type == PieceType.KNIGHT
+                ):
+                    return (Square(target_rank, target_file), piece)
 
         forward = by_color.direction
-        for candidate in (Square(square.rank - forward, square.file - 1), Square(square.rank - forward, square.file + 1)):
-            if candidate.check_limits():
-                piece = self.squares[candidate.rank][candidate.file]
+        pawn_rank = rank - forward
+        if 0 <= pawn_rank < 8:
+            left_file = file - 1
+            if 0 <= left_file < 8:
+                piece = squares[pawn_rank][left_file]
                 if (
                     piece is not None
                     and piece.color == by_color
                     and piece.piece_type == PieceType.PAWN
                 ):
-                    return (candidate, piece)
+                    return (Square(pawn_rank, left_file), piece)
+            right_file = file + 1
+            if 0 <= right_file < 8:
+                piece = squares[pawn_rank][right_file]
+                if (
+                    piece is not None
+                    and piece.color == by_color
+                    and piece.piece_type == PieceType.PAWN
+                ):
+                    return (Square(pawn_rank, right_file), piece)
 
-        this_piece = self.squares[square.rank][square.file]
+        this_piece = squares[rank][file]
         last_move = self.last_move
         if (
             last_move is not None
@@ -116,22 +143,27 @@ class MoveGeneratorMixin(BoardProtocol):
             and last_move.piece is this_piece
         ):
             for file_delta in (-1, 1):
-                adjacent_square = Square(square.rank, square.file + file_delta)
-                if adjacent_square.check_limits():
-                    occupant = self.squares[adjacent_square.rank][adjacent_square.file]
-                    if occupant is not None and occupant == Piece(
-                        by_color, PieceType.PAWN
+                adjacent_file = file + file_delta
+                if 0 <= adjacent_file < 8:
+                    occupant = squares[rank][adjacent_file]
+                    if (
+                        occupant is not None
+                        and occupant.color == by_color
+                        and occupant.piece_type == PieceType.PAWN
                     ):
-                        return (adjacent_square, occupant)
+                        return (Square(rank, adjacent_file), occupant)
 
-        for target in self._offset_attacks(square, KING_OFFSETS):
-            piece = self.squares[target.rank][target.file]
-            if (
-                piece is not None
-                and piece.color == by_color
-                and piece.piece_type == PieceType.KING
-            ):
-                return (target, piece)
+        for delta_rank, delta_file in KING_OFFSETS:
+            target_rank = rank + delta_rank
+            target_file = file + delta_file
+            if 0 <= target_rank < 8 and 0 <= target_file < 8:
+                piece = squares[target_rank][target_file]
+                if (
+                    piece is not None
+                    and piece.color == by_color
+                    and piece.piece_type == PieceType.KING
+                ):
+                    return (Square(target_rank, target_file), piece)
 
         return None
 
@@ -201,11 +233,11 @@ class MoveGeneratorMixin(BoardProtocol):
     @functools.cache
     def _ray(self, square: Square, delta: Direction) -> list[Square]:
         target = Square(square.rank + delta[0], square.file + delta[1])
-        l: list[Square] = []
+        targets: list[Square] = []
         while target.check_limits():
-            l.append(target)
+            targets.append(target)
             target = Square(target.rank + delta[0], target.file + delta[1])
-        return l
+        return targets
 
     def _sliding_moves(
         self, square: Square, piece: Piece, directions: Iterable[Direction]
