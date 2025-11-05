@@ -250,6 +250,7 @@ class MoveGeneratorMixin(BoardProtocol):
                     continue
                 if occupant.color != piece.color:
                     yield target
+                    break
                 break
 
     def _offset_moves(
