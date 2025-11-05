@@ -109,12 +109,18 @@ class BitBoard:
     
     def _update_occupancy(self) -> None:
         """Update occupancy bitboards."""
-        self.color_occupancy[Color.WHITE] = 0
-        self.color_occupancy[Color.BLACK] = 0
+        # Manually unroll the loop for better performance
+        white = self.pieces[Color.WHITE]
+        black = self.pieces[Color.BLACK]
         
-        for color in Color:
-            for piece_type in PieceType:
-                self.color_occupancy[color] |= self.pieces[color][piece_type]
+        self.color_occupancy[Color.WHITE] = (
+            white[PieceType.PAWN] | white[PieceType.KNIGHT] | white[PieceType.BISHOP] |
+            white[PieceType.ROOK] | white[PieceType.QUEEN] | white[PieceType.KING]
+        )
+        self.color_occupancy[Color.BLACK] = (
+            black[PieceType.PAWN] | black[PieceType.KNIGHT] | black[PieceType.BISHOP] |
+            black[PieceType.ROOK] | black[PieceType.QUEEN] | black[PieceType.KING]
+        )
         
         self.occupancy = self.color_occupancy[Color.WHITE] | self.color_occupancy[Color.BLACK]
     
@@ -130,32 +136,44 @@ class BitBoard:
     
     def _get_piece_at(self, square: Square) -> Piece | None:
         """Get the piece at a square."""
-        if not get_bit(self.occupancy, square):
+        bit_mask = 1 << square_to_bit(square)
+        
+        if not (self.occupancy & bit_mask):
             return None
         
-        for color in Color:
-            if get_bit(self.color_occupancy[color], square):
-                for piece_type in PieceType:
-                    if get_bit(self.pieces[color][piece_type], square):
-                        return Piece(color, piece_type)
+        # Check which color
+        if self.color_occupancy[Color.WHITE] & bit_mask:
+            color = Color.WHITE
+        else:
+            color = Color.BLACK
+        
+        # Check which piece type
+        for piece_type in PieceType:
+            if self.pieces[color][piece_type] & bit_mask:
+                return Piece(color, piece_type)
+        
         return None
     
     def _set_piece(self, square: Square, piece: Piece | None) -> None:
         """Set a piece at a square."""
-        # Clear any existing piece
+        bit_mask = 1 << square_to_bit(square)
+        
+        # Clear any existing piece at this square from all bitboards
         for color in Color:
             for piece_type in PieceType:
-                self.pieces[color][piece_type] = clear_bit(
-                    self.pieces[color][piece_type], square
-                )
+                self.pieces[color][piece_type] &= ~bit_mask
         
         # Set new piece if not None
         if piece is not None:
-            self.pieces[piece.color][piece.piece_type] = set_bit(
-                self.pieces[piece.color][piece.piece_type], square
-            )
+            self.pieces[piece.color][piece.piece_type] |= bit_mask
         
-        self._update_occupancy()
+        # Update occupancy efficiently
+        self.color_occupancy[Color.WHITE] = 0
+        self.color_occupancy[Color.BLACK] = 0
+        for piece_type in PieceType:
+            self.color_occupancy[Color.WHITE] |= self.pieces[Color.WHITE][piece_type]
+            self.color_occupancy[Color.BLACK] |= self.pieces[Color.BLACK][piece_type]
+        self.occupancy = self.color_occupancy[Color.WHITE] | self.color_occupancy[Color.BLACK]
     
     def _set_piece_from_squares(self, rank: int, file: int, piece: Piece | None) -> None:
         """Helper method for squares wrapper to set a piece."""
@@ -169,6 +187,9 @@ class BitBoard:
         
         captured_square: Square | None = None
         
+        start_bit = 1 << square_to_bit(start)
+        end_bit = 1 << square_to_bit(end)
+        
         # Handle en passant capture
         if (
             current_piece.piece_type == PieceType.PAWN
@@ -177,13 +198,20 @@ class BitBoard:
         ):
             captured_square = Square(start.rank, end.file)
             prev_piece = self._get_piece_at(captured_square)
-            self._set_piece(captured_square, None)
+            if prev_piece:
+                cap_bit = 1 << square_to_bit(captured_square)
+                self.pieces[prev_piece.color][prev_piece.piece_type] &= ~cap_bit
         elif prev_piece is not None:
             captured_square = end
+            # Remove captured piece
+            self.pieces[prev_piece.color][prev_piece.piece_type] &= ~end_bit
         
-        # Move the piece
-        self._set_piece(end, current_piece)
-        self._set_piece(start, None)
+        # Move the piece using bitboard operations
+        self.pieces[current_piece.color][current_piece.piece_type] &= ~start_bit
+        self.pieces[current_piece.color][current_piece.piece_type] |= end_bit
+        
+        # Update occupancy efficiently
+        self._update_occupancy()
         
         # Update king position cache
         if current_piece.piece_type == PieceType.KING:
@@ -197,8 +225,12 @@ class BitBoard:
     
     def undo_move(self, move: Move) -> None:
         """Undo a move on the board."""
-        self._set_piece(move.start, move.piece)
-        self._set_piece(move.end, move.captured_piece)
+        start_bit = 1 << square_to_bit(move.start)
+        end_bit = 1 << square_to_bit(move.end)
+        
+        # Move piece back
+        self.pieces[move.piece.color][move.piece.piece_type] &= ~end_bit
+        self.pieces[move.piece.color][move.piece.piece_type] |= start_bit
         
         # Handle en passant capture restoration
         if (
@@ -207,8 +239,16 @@ class BitBoard:
             and move.captured_square is not None
             and move.captured_square != move.end
         ):
-            self._set_piece(move.captured_square, move.captured_piece)
-            self._set_piece(move.end, None)
+            # Restore captured pawn at captured_square
+            if move.captured_piece:
+                cap_bit = 1 << square_to_bit(move.captured_square)
+                self.pieces[move.captured_piece.color][move.captured_piece.piece_type] |= cap_bit
+        elif move.captured_piece is not None:
+            # Restore normal capture
+            self.pieces[move.captured_piece.color][move.captured_piece.piece_type] |= end_bit
+        
+        # Update occupancy
+        self._update_occupancy()
         
         # Update king position cache
         if move.piece.piece_type == PieceType.KING:
