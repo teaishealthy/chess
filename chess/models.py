@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Iterable, NamedTuple, Protocol
+from typing import Iterable, Iterator, NamedTuple, Protocol
 
 
 class Color(Enum):
@@ -47,9 +47,6 @@ class KingNotFound(Exception):
 class Square(NamedTuple):
     rank: int
     file: int
-
-    def t(self, direction: Direction) -> Square:
-        return Square(self.rank + direction[0], self.file + direction[1])
 
     def to_notation(self) -> str:
         return chr(self.file + 97) + str(8 - self.rank)
@@ -127,3 +124,7 @@ class BoardProtocol(Protocol):
     def undo_move(self, move: Move) -> None: ...
 
     def in_check(self, color: Color) -> tuple[Square, Piece] | None: ...
+
+    def legal_moves(self, square: Square) -> Iterable[Square]: ...
+
+    def __iter__(self) -> Iterator[tuple[Piece, Square]]: ...

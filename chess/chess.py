@@ -13,9 +13,10 @@ from .models import (
     Square,
 )
 from .movegen import MoveGeneratorMixin
+from .perft import PerftMixin
 
 
-class Board(FenMixin, MoveGeneratorMixin):
+class Board(FenMixin, MoveGeneratorMixin, PerftMixin):
     def __init__(self) -> None:
         # 8 ranks, 8 files
         self.squares: list[list[Piece | None]] = [[None] * 8 for _ in range(8)]

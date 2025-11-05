@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import Iterable, Iterator
 
 from .models import (
@@ -97,7 +98,7 @@ class MoveGeneratorMixin(BoardProtocol):
                 return (target, piece)
 
         forward = by_color.direction
-        for candidate in (square.t((-forward, -1)), square.t((-forward, 1))):
+        for candidate in (Square(square.rank - forward, square.file - 1), Square(square.rank - forward, square.file + 1)):
             if candidate.check_limits():
                 piece = self.squares[candidate.rank][candidate.file]
                 if (
@@ -164,10 +165,10 @@ class MoveGeneratorMixin(BoardProtocol):
         forward = piece.color.direction
         home_rank = 6 if piece.color == Color.WHITE else 1
 
-        one_forward = square.t((forward, 0))
+        one_forward = Square(square.rank + forward, square.file)
         if self._is_empty(one_forward):
             yield one_forward
-            two_forward = square.t((forward * 2, 0))
+            two_forward = Square(square.rank + forward * 2, square.file)
             if square.rank == home_rank and self._is_empty(two_forward):
                 yield two_forward
 
@@ -187,7 +188,7 @@ class MoveGeneratorMixin(BoardProtocol):
             if square.rank == required_rank:
                 for file_delta in (-1, 1):
                     if square.file + file_delta == last_move.end.file:
-                        capture_square = square.t((forward, file_delta))
+                        capture_square = Square(square.rank + forward, square.file + file_delta)
                         if capture_square.check_limits() and self._is_empty(
                             capture_square
                         ):
@@ -197,11 +198,14 @@ class MoveGeneratorMixin(BoardProtocol):
         assert square.check_limits(), "Square out of bounds"
         return self.squares[square.rank][square.file] is None
 
-    def _ray(self, square: Square, delta: Direction) -> Iterator[Square]:
-        target = square.t(delta)
+    @functools.cache
+    def _ray(self, square: Square, delta: Direction) -> list[Square]:
+        target = Square(square.rank + delta[0], square.file + delta[1])
+        l: list[Square] = []
         while target.check_limits():
-            yield target
-            target = target.t(delta)
+            l.append(target)
+            target = Square(target.rank + delta[0], target.file + delta[1])
+        return l
 
     def _sliding_moves(
         self, square: Square, piece: Piece, directions: Iterable[Direction]
@@ -220,7 +224,7 @@ class MoveGeneratorMixin(BoardProtocol):
         self, square: Square, piece: Piece, offsets: Iterable[Direction]
     ) -> Iterator[Square]:
         for delta in offsets:
-            target = square.t(delta)
+            target = Square(square.rank + delta[0], square.file + delta[1])
             if not target.check_limits():
                 continue
             occupant = self.squares[target.rank][target.file]
@@ -231,12 +235,12 @@ class MoveGeneratorMixin(BoardProtocol):
         self, square: Square, offsets: Iterable[Direction]
     ) -> Iterator[Square]:
         for delta in offsets:
-            target = square.t(delta)
+            target = Square(square.rank + delta[0], square.file + delta[1])
             if target.check_limits():
                 yield target
 
     def _pawn_attacks(self, square: Square, piece: Piece) -> Iterator[Square]:
         forward = piece.color.direction
-        for candidate in (square.t((forward, -1)), square.t((forward, 1))):
+        for candidate in (Square(square.rank + forward, square.file - 1), Square(square.rank + forward, square.file + 1)):
             if candidate.check_limits():
                 yield candidate

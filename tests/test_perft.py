@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from chess.perft import PerftBoard
+from chess.chess import Board
 
 
 @pytest.fixture(scope="module")
@@ -66,12 +66,24 @@ def run_stockfish_perft(stockfish_path: str, fen: str, depth: int) -> tuple[int,
 
 
 def run_engine_perft(fen: str, depth: int) -> tuple[int, dict[str, int]]:
-	board = PerftBoard.from_fen(fen)
-	board.total_depth = depth
-	board.results = {}
-	total = board.perft(depth)
-	return total, board.results
+    board = Board()
+    board.load(fen)
+    board.total_depth = depth
+    board.results = {}
+    total = board.perft(depth)
+    results = {
+        f"{start.to_notation()}{end.to_notation()}": count
+        for (start, end), count in board.results.items()
+    }
+    return total, results
 
+def test_benchmark_perft(benchmark) -> None:
+    starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    board = Board()
+    board.load(starting_fen)
+    board.setup_perft(2)
+
+    benchmark(board.perft, 2)
 
 @pytest.mark.parametrize("depth", [1, 2, 3, 4])
 def test_perft_matches_stockfish(stockfish_path: str, depth: int) -> None:

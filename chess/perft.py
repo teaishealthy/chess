@@ -1,13 +1,15 @@
 import sys
+import time
 
-from .chess import Board
-from .models import Square
+from chess.models import BoardProtocol, Square
 
 
-class PerftBoard(Board):
-    total_depth: int = 0
-    results: dict[str, int] = {}
+class PerftMixin(BoardProtocol):
     """Provides perft (performance test) functionality for a chess board."""
+
+    def setup_perft(self, total_depth: int) -> None:
+        self.total_depth = total_depth
+        self.results: dict[tuple[Square, Square], int] = {}
 
     def perft(self, depth: int) -> int:
         """Calculate the number of possible positions up to a given depth."""
@@ -19,39 +21,21 @@ class PerftBoard(Board):
             if piece.color != self.to_move:
                 continue
 
-            seen: set[Square] = set()
             for target in self.legal_moves(square):
-                if target in seen:
-                    print(f"??? Duplicate target square {target.to_notation()} for piece at {square.to_notation()}")
-                seen.add(target)
-
-                starting_fen = str(self)
                 last_move = self.last_move
                 move = self.make_move(square, target)
                 nodes += (result := self.perft(depth - 1))
+
                 if depth == self.total_depth:
-                    notation = f"{square.to_notation()}{target.to_notation()}"
-                    assert notation not in self.results, (
-                        "Duplicate move notation in perft results", notation
-                    )
-                    self.results[notation] = result
-                    #print(f"{square.to_notation()}{target.to_notation()}: {result}")
+                    self.results[(square, target)] = result
+
                 self.undo_move(move)
                 self.last_move = last_move
-                assert str(self) == starting_fen, (
-                    "Board state mismatch after move "
-                    f"{square.to_notation()}{target.to_notation()}",
-                    self,
-                    starting_fen,
-                )
-
         return nodes
 
-def compare_with_stockfish(fen: str, depth: int, results: dict[str, int], total:int) -> None: # pragma: no cover
+def compare_with_stockfish(fen: str, depth: int, results: dict[tuple[Square, Square], int], total:int) -> None: # pragma: no cover
     import subprocess
 
-    board = PerftBoard.from_fen(fen)
-    board.total_depth = depth
     stockfish_results: dict[str, int] = {}
 
     # Call Stockfish perft
@@ -89,23 +73,30 @@ def compare_with_stockfish(fen: str, depth: int, results: dict[str, int], total:
     if total != stockfish_result:
         print(f"Discrepancy in total nodes: Our result = {total}, Stockfish = {stockfish_result}")
 
-    for move, count in results.items():
+    for (square, target), count in results.items():
+        move = f"{square.to_notation()}{target.to_notation()}"
         stockfish_count = stockfish_results.get(move)
         if stockfish_count is None:
             print(f"Move {move} not found in Stockfish results.")
         elif count != stockfish_count:
             print(f"Discrepancy for move {move}: Our count = {count}, Stockfish count = {stockfish_count}")
 
-    for move in stockfish_results.keys():
-        if move not in results:
+    for move in stockfish_results:
+        sq = (Square.from_notation(move[:2]), Square.from_notation(move[2:]))
+        if sq not in results:
             print(f"Move {move} found in Stockfish results but not in our results.")
 
+
 def execute_perft_analysis( fen: str) -> None:  # pragma: no cover
-    board = PerftBoard.from_fen(fen)
+    from .chess import Board
+    start_time = time.perf_counter()
     depth = int(sys.argv[1]) if len(sys.argv) > 1 else 3
-    board.total_depth = depth
+    board = Board()
+    board.setup_perft(depth)
+    board.load(fen)
+
     result = board.perft(depth)
-    print(f"Perft({depth}) = {result}")
+    print(f"Perft({depth}) = {result} in {time.perf_counter() - start_time:.2f} seconds")
     compare_with_stockfish(fen, depth, board.results, result)
 
 if __name__ == "__main__":  # pragma: no cover
