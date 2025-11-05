@@ -8,6 +8,7 @@ from Cython.Build import cythonize
 modules_to_compile = [
     "chess/bitboard.py",
     "chess/attacks.py",
+    "chess/magic_bitboards.py",
     "chess/bitboard_board.py",
     "chess/bitboard_movegen.py",
 ]

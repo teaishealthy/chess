@@ -122,19 +122,36 @@ def _generate_sliding_attacks(square: Square, occupied: int, directions: list[tu
     return attacks
 
 
+# Import magic bitboards at module level to avoid repeated imports
+from .magic_bitboards import (
+    get_rook_attacks_magic,
+    get_bishop_attacks_magic,
+    get_queen_attacks_magic,
+)
+
+
 def get_rook_attacks(square: Square, occupied: int) -> int:
-    """Get rook attacks from a square given board occupancy."""
-    return _generate_sliding_attacks(square, occupied, [(1, 0), (-1, 0), (0, 1), (0, -1)])
+    """Get rook attacks from a square given board occupancy.
+    
+    Uses magic bitboards for O(1) lookup performance.
+    """
+    return get_rook_attacks_magic(square, occupied)
 
 
 def get_bishop_attacks(square: Square, occupied: int) -> int:
-    """Get bishop attacks from a square given board occupancy."""
-    return _generate_sliding_attacks(square, occupied, [(1, 1), (1, -1), (-1, 1), (-1, -1)])
+    """Get bishop attacks from a square given board occupancy.
+    
+    Uses magic bitboards for O(1) lookup performance.
+    """
+    return get_bishop_attacks_magic(square, occupied)
 
 
 def get_queen_attacks(square: Square, occupied: int) -> int:
-    """Get queen attacks from a square given board occupancy."""
-    return get_rook_attacks(square, occupied) | get_bishop_attacks(square, occupied)
+    """Get queen attacks from a square given board occupancy.
+    
+    Uses magic bitboards for O(1) lookup performance.
+    """
+    return get_queen_attacks_magic(square, occupied)
 
 
 # Precompute non-sliding piece attacks
