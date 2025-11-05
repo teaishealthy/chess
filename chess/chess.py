@@ -28,6 +28,21 @@ class Board(FenMixin, MoveGeneratorMixin, PerftMixin):
         }
         self.halfmove_clock: int = 0
         self.fullmove_number: int = 1
+        self._king_positions: dict[Color, Square | None] = {
+            Color.WHITE: None,
+            Color.BLACK: None,
+        }
+
+    def _recompute_king_positions(self) -> None:
+        self._king_positions[Color.WHITE] = None
+        self._king_positions[Color.BLACK] = None
+        for rank_idx, rank in enumerate(self.squares):
+            for file_idx, piece in enumerate(rank):
+                if (
+                    piece is not None
+                    and piece.piece_type == PieceType.KING
+                ):
+                    self._king_positions[piece.color] = Square(rank_idx, file_idx)
 
     def copy(self) -> Self:
         """Copy the board
@@ -48,6 +63,13 @@ class Board(FenMixin, MoveGeneratorMixin, PerftMixin):
 
     def __repr__(self) -> str:
         return f"Board({self})"
+
+    def load(self, fen: str) -> None:
+        for rank_idx in range(8):
+            for file_idx in range(8):
+                self.squares[rank_idx][file_idx] = None
+        super().load(fen)
+        self._recompute_king_positions()
 
     def make_move(self, start: Square, end: Square) -> Move:
         """Make a move on the board"""
@@ -70,6 +92,10 @@ class Board(FenMixin, MoveGeneratorMixin, PerftMixin):
 
         self.squares[end.rank][end.file] = self.squares[start.rank][start.file]
         self.squares[start.rank][start.file] = None
+        if current_piece.piece_type == PieceType.KING:
+            self._king_positions[current_piece.color] = end
+        if prev_piece is not None and prev_piece.piece_type == PieceType.KING:
+            self._king_positions[prev_piece.color] = None
         self.last_move = Move(start, end, current_piece, prev_piece, captured_square)
         self.to_move = self.to_move.other
         return self.last_move
@@ -90,20 +116,24 @@ class Board(FenMixin, MoveGeneratorMixin, PerftMixin):
             ] = move.captured_piece
             self.squares[move.end.rank][move.end.file] = None
 
+        if move.piece.piece_type == PieceType.KING:
+            self._king_positions[move.piece.color] = move.start
+        if (
+            move.captured_piece is not None
+            and move.captured_piece.piece_type == PieceType.KING
+        ):
+            restore_square = move.captured_square or move.end
+            self._king_positions[move.captured_piece.color] = restore_square
         self.last_move = None  # Could be improved to track history
         self.to_move = self.to_move.other
 
     def find_king(self, color: Color) -> Square | None:
         """Find the king of the given color"""
-        for row_idx, row in enumerate(self.squares):
-            for square_idx, square in enumerate(row):
-                if (
-                    square is not None
-                    and square.piece_type == PieceType.KING
-                    and square.color == color
-                ):
-                    return Square(row_idx, square_idx)
-        return None
+        king_square = self._king_positions[color]
+        if king_square is not None:
+            return king_square
+        self._recompute_king_positions()
+        return self._king_positions[color]
 
     def __iter__(self) -> Iterator[tuple[Piece, Square]]:
         for rank_idx, rank in enumerate(self.squares):
