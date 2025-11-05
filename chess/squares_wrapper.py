@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .models import Piece
+
 if TYPE_CHECKING:
     from .bitboard_board import BitBoard
-from .models import Piece
 
 
 class SquaresWrapper:
