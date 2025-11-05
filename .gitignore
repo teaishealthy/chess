@@ -10,3 +10,9 @@ wheels/
 .venv
 
 .coverage
+
+# Cython build artifacts
+*.so
+*.c
+*.cpp
+*.html
